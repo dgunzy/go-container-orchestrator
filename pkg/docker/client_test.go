@@ -28,6 +28,9 @@ func TestListContainers(t *testing.T) {
 		t.Fatalf("Error listing containers: %s", err)
 	}
 	t.Logf("Found %d containers", len(containers))
+	for _, container := range containers {
+		t.Logf("Container Image: %s, Container Name %s", container.Image, container.Names)
+	}
 }
 
 func TestCreateAndRemoveContainer(t *testing.T) {
