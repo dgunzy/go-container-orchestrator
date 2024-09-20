@@ -9,12 +9,8 @@ import (
 	"io"
 	"os"
 
-	"github.com/docker/docker/api/types"
-
-	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/image"
 
-	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
 )
 
@@ -37,28 +33,6 @@ func NewClient() (*DockerClient, error) {
 		return nil, err
 	}
 	return &DockerClient{client: cli}, nil
-}
-
-func (d *DockerClient) ListContainers(ctx context.Context) ([]types.Container, error) {
-	return d.client.ContainerList(ctx, container.ListOptions{})
-}
-
-func (d *DockerClient) CreateContainer(ctx context.Context,
-	config *container.Config,
-	hostConfig *container.HostConfig,
-	networkingConfig *network.NetworkingConfig,
-	containerName string) (container.CreateResponse, error) {
-	return d.client.ContainerCreate(ctx, config, hostConfig, networkingConfig, nil, containerName)
-}
-
-func (d *DockerClient) RemoveContainer(ctx context.Context, containerID string, options container.RemoveOptions) error {
-	return d.client.ContainerRemove(ctx, containerID, options)
-}
-
-func (d *DockerClient) RemoveImage(ctx context.Context, imageName string) error {
-	_, err := d.client.ImageRemove(ctx, imageName, image.RemoveOptions{})
-
-	return err
 }
 
 // PullImageFromPrivateRegistry pulls an image from a private registry but not if the exact image exits locally
@@ -108,29 +82,3 @@ func (d *DockerClient) ImageExists(ctx context.Context, imageName string) (bool,
 	}
 	return true, nil
 }
-
-// func (d *DockerClient) PullImage(ctx context.Context, imageName string, options *PullOptions) error {
-// 	imageExists, err := d.ImageExists(ctx, imageName)
-// 	if err != nil {
-// 		return err
-// 	}
-// 	if imageExists && options == nil {
-// 		//We have this image already
-// 		return nil
-// 	}
-
-// 	pullOptions := image.PullOptions{}
-// 	if options != nil {
-// 		//We should never pull non os compatible images
-// 		pullOptions.All = false
-// 		pullOptions.RegistryAuth = options.RegistryAuth
-// 	}
-
-// 	out, err := d.client.ImagePull(ctx, imageName, pullOptions)
-// 	if err != nil {
-// 		return err
-// 	}
-// 	defer out.Close()
-// 	_, err = io.Copy(os.Stdout, out)
-// 	return err
-// }
