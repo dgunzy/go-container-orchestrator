@@ -2,7 +2,10 @@ module github.com/dgunzy/go-container-orchestrator
 
 go 1.22.4
 
-require github.com/docker/docker v27.2.1+incompatible
+require (
+	github.com/docker/docker v27.2.1+incompatible
+	github.com/joho/godotenv v1.5.1
+)
 
 require (
 	github.com/Microsoft/go-winio v0.4.14 // indirect
