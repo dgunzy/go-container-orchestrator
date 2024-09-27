@@ -140,13 +140,13 @@ func (d *Database) ListContainers() ([]ContainerInfo, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan container row: %w", err)
 		}
+		d.logger.Info("Found container: %+v", info)
 		containers = append(containers, info)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("error iterating container rows: %w", err)
 	}
 	return containers, nil
-	// TODO: Ensure this returns something valid and test with 0 containers
 }
 
 func (d *Database) DeleteContainer(containerID string) error {
