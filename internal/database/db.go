@@ -16,8 +16,8 @@ type ContainerInfo struct {
 	ContainerName string
 	ImageName     string
 	DomainName    string
-	HostPort      int
-	ContainerPort int
+	HostPort      string
+	ContainerPort string
 	Status        string
 	CreatedAt     time.Time
 }
@@ -96,15 +96,15 @@ func (d *Database) UpdateContainerStatus(containerID, status string) error {
 	return nil
 }
 
-func (d *Database) GetContainer(containerID string) (*ContainerInfo, error) {
-	d.logger.Infof("Fetching container: %s", containerID)
+func (d *Database) GetContainer(containerName string) (*ContainerInfo, error) {
+	d.logger.Infof("Fetching container: %s", containerName)
 	var info ContainerInfo
-	err := d.db.QueryRow("SELECT * FROM containers WHERE container_id = ?", containerID).Scan(
+	err := d.db.QueryRow("SELECT * FROM containers WHERE container_name = ?", containerName).Scan(
 		&info.ID, &info.ContainerID, &info.ContainerName, &info.ImageName,
 		&info.DomainName, &info.HostPort, &info.ContainerPort, &info.Status, &info.CreatedAt)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return nil, fmt.Errorf("no container found with ID %s", containerID)
+			return nil, fmt.Errorf("no container found with ID %s", containerName)
 		}
 		return nil, fmt.Errorf("failed to get container: %w", err)
 	}
@@ -163,12 +163,7 @@ func validateContainerInfo(info ContainerInfo) error {
 	if info.DomainName == "" {
 		return errors.New("domain name cannot be empty")
 	}
-	if info.HostPort <= 0 {
-		return errors.New("host port must be a positive integer")
-	}
-	if info.ContainerPort <= 0 {
-		return errors.New("container port must be a positive integer")
-	}
+
 	if info.Status == "" {
 		return errors.New("status cannot be empty")
 	}

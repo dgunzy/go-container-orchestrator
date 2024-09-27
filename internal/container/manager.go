@@ -33,18 +33,18 @@ type ContainerConfig struct {
 	Cmd              strslice.StrSlice
 }
 
-func NewContainerManager(dockerClient *docker.DockerClient) *ContainerManager {
+func NewContainerManager(dockerClient *docker.DockerClient, dbPath string) (*ContainerManager, error) {
 	logger := logging.GetLogger()
-	database, err := database.NewDatabase("../../db.sqlite")
+	db, err := database.NewDatabase(dbPath)
 	if err != nil {
-		logger.Errorf("Error creating database: %s", err)
+		return nil, fmt.Errorf("error creating database: %w", err)
 	}
 	return &ContainerManager{
 		dockerClient: dockerClient,
 		portFinder:   newPortFinder(),
-		db:           database,
+		db:           db,
 		logger:       logger,
-	}
+	}, nil
 }
 
 func (cm *ContainerManager) CreateNewContainer(ctx context.Context, config *ContainerConfig) error {
@@ -56,12 +56,13 @@ func (cm *ContainerManager) CreateNewContainer(ctx context.Context, config *Cont
 
 	if err != nil {
 		cm.logger.Errorf("Error pulling image: %s", err)
-		return fmt.Errorf("error pulling image: %s", err)
+		return fmt.Errorf("error pulling image: %w", err)
 	}
+
 	newHostPort, err := cm.portFinder.findAvailablePort()
 	if err != nil {
 		cm.logger.Errorf("Error finding available port: %s", err)
-		return fmt.Errorf("error finding available port: %s", err)
+		return fmt.Errorf("error finding available port: %w", err)
 	}
 
 	containerConfig := &container.Config{
@@ -80,10 +81,9 @@ func (cm *ContainerManager) CreateNewContainer(ctx context.Context, config *Cont
 		},
 	}
 	response, err := cm.dockerClient.CreateContainer(ctx, containerConfig, hostConfig, &network.NetworkingConfig{}, config.ContainerName)
-
 	if err != nil {
 		cm.logger.Errorf("Error creating container: %s", err)
-		return fmt.Errorf("error creating container: %s", err)
+		return fmt.Errorf("error creating container: %w", err)
 	}
 
 	cm.logger.Infof("Created container with ID: %s", response.ID)
@@ -91,38 +91,51 @@ func (cm *ContainerManager) CreateNewContainer(ctx context.Context, config *Cont
 	err = cm.dockerClient.StartContainer(ctx, response.ID)
 	if err != nil {
 		cm.logger.Errorf("Error starting container: %s", err)
-		return fmt.Errorf("error starting container: %s", err)
+		return fmt.Errorf("error starting container: %w", err)
 	}
 
 	cm.logger.Info("Container started successfully")
+
+	// Save container info to database
+	containerInfo := database.ContainerInfo{
+		ContainerID:   response.ID,
+		ContainerName: config.ContainerName,
+		ImageName:     config.ImageName,
+		DomainName:    config.DomainName,
+		HostPort:      newHostPort,
+		ContainerPort: config.ContainerPort,
+		Status:        "running",
+	}
+	err = cm.db.AddContainer(containerInfo)
+	if err != nil {
+		cm.logger.Errorf("Error saving container info to database: %s", err)
+		return fmt.Errorf("error saving container info to database: %w", err)
+	}
+
 	//TODO add nginx config to expose this internal port to proxy
 	return nil
 }
 
 func (cm *ContainerManager) UpdateExistingContainer(ctx context.Context, config *ContainerConfig) error {
 	cm.logger.Infof("Updating existing container: %s", config.ContainerName)
-	// Generate a timestamp for the new container name
 	timestamp := time.Now().Format("20060102150405")
 	newContainerName := fmt.Sprintf("%s_%s", config.ContainerName, timestamp)
 
-	// Step 1: Pull the new image
 	err := cm.dockerClient.PullImageFromPrivateRegistry(ctx,
 		config.ImageName,
 		config.RegistryUsername,
 		config.RegistryPassword)
 	if err != nil {
 		cm.logger.Errorf("Error pulling updated image: %s", err)
-		return fmt.Errorf("error pulling updated image: %s", err)
+		return fmt.Errorf("error pulling updated image: %w", err)
 	}
 
-	// Step 2: Find an available host port
 	newHostPort, err := cm.portFinder.findAvailablePort()
 	if err != nil {
 		cm.logger.Errorf("Error finding available port: %s", err)
-		return fmt.Errorf("error finding available port: %s", err)
+		return fmt.Errorf("error finding available port: %w", err)
 	}
 
-	// Step 3: Create a new container with the updated image and new port
 	containerConfig := &container.Config{
 		Image:      config.ImageName,
 		Domainname: config.DomainName,
@@ -141,46 +154,140 @@ func (cm *ContainerManager) UpdateExistingContainer(ctx context.Context, config 
 	response, err := cm.dockerClient.CreateContainer(ctx, containerConfig, hostConfig, &network.NetworkingConfig{}, newContainerName)
 	if err != nil {
 		cm.logger.Errorf("Error creating new container: %s", err)
-		return fmt.Errorf("error creating new container: %s", err)
+		return fmt.Errorf("error creating new container: %w", err)
 	}
 
-	// Step 4: Start the new container
 	err = cm.dockerClient.StartContainer(ctx, response.ID)
 	if err != nil {
 		cm.logger.Errorf("Error starting new container: %s", err)
-		return fmt.Errorf("error starting new container: %s", err)
+		return fmt.Errorf("error starting new container: %w", err)
 	}
 	cm.logger.Infof("New container started: %s", newContainerName)
 
-	// make sure new container has started here
 	time.Sleep(2 * time.Second)
 
-	// Step 5: Verify the new container is healthy (implement health check logic)
 	// TODO: Implement health check
 	cm.logger.Info("TODO: Implement health check")
 
-	// Step 6: Update Nginx configuration to point to the new container
 	// TODO: Update Nginx config to use newHostPort
 	cm.logger.Info("TODO: Update Nginx configuration")
 
-	err = cm.dockerClient.StopContainer(ctx, config.ContainerName, nil)
+	oldContainerInfo, err := cm.db.GetContainer(config.ContainerName)
+	if err != nil {
+		cm.logger.Errorf("Error getting old container info: %s", err)
+		return fmt.Errorf("error getting old container info: %w", err)
+	}
+
+	err = cm.dockerClient.StopContainer(ctx, oldContainerInfo.ContainerID, nil)
 	if err != nil {
 		cm.logger.Errorf("Error stopping old container: %s", err)
 	}
 
-	err = cm.dockerClient.RemoveContainer(ctx, config.ContainerName, container.RemoveOptions{Force: true})
+	err = cm.dockerClient.RemoveContainer(ctx, oldContainerInfo.ContainerID, container.RemoveOptions{Force: true})
 	if err != nil {
 		cm.logger.Errorf("Error removing old container: %s", err)
 	}
 
-	// Step 9: Update the database with the new container information
-	// TODO: Update database with newContainerName and newHostPort
-	cm.logger.Info("TODO: Update database with new container information")
+	// Update database with new container information
+	newContainerInfo := database.ContainerInfo{
+		ContainerID:   response.ID,
+		ContainerName: newContainerName,
+		ImageName:     config.ImageName,
+		DomainName:    config.DomainName,
+		HostPort:      newHostPort,
+		ContainerPort: config.ContainerPort,
+		Status:        "running",
+	}
+	err = cm.db.AddContainer(newContainerInfo)
+	if err != nil {
+		cm.logger.Errorf("Error saving new container info to database: %s", err)
+		return fmt.Errorf("error saving new container info to database: %w", err)
+	}
+
+	err = cm.db.DeleteContainer(oldContainerInfo.ContainerID)
+	if err != nil {
+		cm.logger.Errorf("Error removing old container info from database: %s", err)
+		return fmt.Errorf("error removing old container info from database: %w", err)
+	}
 
 	cm.logger.Infof("Container update completed: %s", newContainerName)
 	return nil
 }
 
-// TODO add function to remove container from db and
+func (cm *ContainerManager) RemoveContainer(ctx context.Context, containerID string) error {
+	cm.logger.Infof("Removing container: %s", containerID)
 
-// Todo add function to load the containers and ports from db and start them
+	err := cm.dockerClient.StopContainer(ctx, containerID, nil)
+	if err != nil {
+		cm.logger.Errorf("Error stopping container: %s", err)
+		// Continue with removal even if stop fails
+	}
+
+	err = cm.dockerClient.RemoveContainer(ctx, containerID, container.RemoveOptions{Force: true})
+	if err != nil {
+		cm.logger.Errorf("Error removing container: %s", err)
+		return fmt.Errorf("error removing container: %w", err)
+	}
+
+	err = cm.db.DeleteContainer(containerID)
+	if err != nil {
+		cm.logger.Errorf("Error removing container info from database: %s", err)
+		return fmt.Errorf("error removing container info from database: %w", err)
+	}
+
+	cm.logger.Infof("Container removed successfully: %s", containerID)
+	return nil
+}
+
+func (cm *ContainerManager) LoadAndStartContainers(ctx context.Context) error {
+	cm.logger.Info("Loading and starting containers from database")
+
+	containers, err := cm.db.ListContainers()
+	if err != nil {
+		cm.logger.Errorf("Error listing containers from database: %s", err)
+		return fmt.Errorf("error listing containers from database: %w", err)
+	}
+
+	for _, containerInfo := range containers {
+		containerConfig := &container.Config{
+			Image:      containerInfo.ImageName,
+			Domainname: containerInfo.DomainName,
+		}
+		hostConfig := &container.HostConfig{
+			PortBindings: nat.PortMap{
+				nat.Port(containerInfo.ContainerPort): []nat.PortBinding{
+					{
+						HostIP:   "0.0.0.0",
+						HostPort: containerInfo.HostPort,
+					},
+				},
+			},
+		}
+
+		response, err := cm.dockerClient.CreateContainer(ctx, containerConfig, hostConfig, &network.NetworkingConfig{}, containerInfo.ContainerName)
+		if err != nil {
+			cm.logger.Errorf("Error creating container %s: %s", containerInfo.ContainerName, err)
+			continue
+		}
+
+		err = cm.dockerClient.StartContainer(ctx, response.ID)
+		if err != nil {
+			cm.logger.Errorf("Error starting container %s: %s", containerInfo.ContainerName, err)
+			continue
+		}
+
+		cm.logger.Infof("Container started successfully: %s", containerInfo.ContainerName)
+
+		// Update container ID in database if it has changed
+		if response.ID != containerInfo.ContainerID {
+			containerInfo.ContainerID = response.ID
+			err = cm.db.UpdateContainerStatus(containerInfo.ContainerID, "running")
+			if err != nil {
+				cm.logger.Errorf("Error updating container status in database: %s", err)
+			}
+		}
+	}
+
+	cm.logger.Info("Finished loading and starting containers")
+	return nil
+}

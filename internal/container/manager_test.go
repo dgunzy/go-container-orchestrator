@@ -20,11 +20,16 @@ func TestCreateNewContainer(t *testing.T) {
 	// cm, dockerClient := setupTest(t)
 	ctx := context.Background()
 	dockerClient, err := docker.NewClient()
-	cm := NewContainerManager(dockerClient)
-
 	if err != nil {
 		t.Fatalf("Error creating client: %s", err)
 	}
+
+	cm, err := NewContainerManager(dockerClient, ":memory:")
+	if err != nil {
+		t.Fatalf("Error creating client: %s", err)
+	}
+
+	cm.db.InitSchema()
 
 	config := &ContainerConfig{
 		DomainName:    "test.example.com",
@@ -68,7 +73,12 @@ func TestUpdateExistingContainer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Error creating client: %s", err)
 	}
-	cm := NewContainerManager(dockerClient)
+	cm, err := NewContainerManager(dockerClient, ":memory:")
+
+	if err != nil {
+		t.Fatalf("Error creating client: %s", err)
+	}
+	cm.db.InitSchema()
 
 	// First, create an initial container
 	initialConfig := &ContainerConfig{
