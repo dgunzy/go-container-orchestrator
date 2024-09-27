@@ -54,8 +54,7 @@ func (d *Database) InitSchema() error {
 			domain_name TEXT NOT NULL,
 			host_port INTEGER NOT NULL,
 			container_port INTEGER NOT NULL,
-			status TEXT NOT NULL,
-			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+			status TEXT NOT NULL
 		);
 	`)
 	if err != nil {
@@ -69,7 +68,7 @@ func (d *Database) AddContainer(info ContainerInfo) error {
 		return fmt.Errorf("invalid container info: %w", err)
 	}
 
-	d.logger.Infof("Adding container: %s", info.ContainerName)
+	d.logger.Info("Adding container: %s", info.ContainerName)
 	_, err := d.db.Exec(`
 		INSERT INTO containers (container_id, container_name, image_name, domain_name, host_port, container_port, status)
 		VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -81,7 +80,7 @@ func (d *Database) AddContainer(info ContainerInfo) error {
 }
 
 func (d *Database) UpdateContainerStatus(containerID, status string) error {
-	d.logger.Infof("Updating status for container %s to %s", containerID, status)
+	d.logger.Info("Updating status for container %s to %s", containerID, status)
 	result, err := d.db.Exec("UPDATE containers SET status = ? WHERE container_id = ?", status, containerID)
 	if err != nil {
 		return fmt.Errorf("failed to update container status: %w", err)
@@ -96,17 +95,32 @@ func (d *Database) UpdateContainerStatus(containerID, status string) error {
 	return nil
 }
 
-func (d *Database) GetContainer(containerName string) (*ContainerInfo, error) {
-	d.logger.Infof("Fetching container: %s", containerName)
+func (d *Database) GetContainer(containerID string) (*ContainerInfo, error) {
+	d.logger.Info("Fetching container: %s", containerID)
+	var info ContainerInfo
+	err := d.db.QueryRow("SELECT * FROM containers WHERE container_id = ?", containerID).Scan(
+		&info.ID, &info.ContainerID, &info.ContainerName, &info.ImageName,
+		&info.DomainName, &info.HostPort, &info.ContainerPort, &info.Status)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("no container found with ID %s", containerID)
+		}
+		return nil, fmt.Errorf("failed to get container: %w", err)
+	}
+	return &info, nil
+}
+
+func (d *Database) GetContainerByName(containerName string) (*ContainerInfo, error) {
+	d.logger.Info("Fetching container by name: %s", containerName)
 	var info ContainerInfo
 	err := d.db.QueryRow("SELECT * FROM containers WHERE container_name = ?", containerName).Scan(
 		&info.ID, &info.ContainerID, &info.ContainerName, &info.ImageName,
-		&info.DomainName, &info.HostPort, &info.ContainerPort, &info.Status, &info.CreatedAt)
+		&info.DomainName, &info.HostPort, &info.ContainerPort, &info.Status)
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return nil, fmt.Errorf("no container found with ID %s", containerName)
+			return nil, fmt.Errorf("no container found with name %s", containerName)
 		}
-		return nil, fmt.Errorf("failed to get container: %w", err)
+		return nil, fmt.Errorf("failed to get container by name: %w", err)
 	}
 	return &info, nil
 }
@@ -122,7 +136,7 @@ func (d *Database) ListContainers() ([]ContainerInfo, error) {
 	for rows.Next() {
 		var info ContainerInfo
 		err := rows.Scan(&info.ID, &info.ContainerID, &info.ContainerName, &info.ImageName,
-			&info.DomainName, &info.HostPort, &info.ContainerPort, &info.Status, &info.CreatedAt)
+			&info.DomainName, &info.HostPort, &info.ContainerPort, &info.Status)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan container row: %w", err)
 		}
@@ -132,10 +146,11 @@ func (d *Database) ListContainers() ([]ContainerInfo, error) {
 		return nil, fmt.Errorf("error iterating container rows: %w", err)
 	}
 	return containers, nil
+	// TODO: Ensure this returns something valid and test with 0 containers
 }
 
 func (d *Database) DeleteContainer(containerID string) error {
-	d.logger.Infof("Deleting container: %s", containerID)
+	d.logger.Info("Deleting container: %s", containerID)
 	result, err := d.db.Exec("DELETE FROM containers WHERE container_id = ?", containerID)
 	if err != nil {
 		return fmt.Errorf("failed to delete container: %w", err)

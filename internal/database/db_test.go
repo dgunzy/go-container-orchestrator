@@ -37,6 +37,11 @@ func TestDatabaseOperations(t *testing.T) {
 		assert.Equal(t, containerInfo.ContainerName, savedInfo.ContainerName)
 		assert.Equal(t, containerInfo.ImageName, savedInfo.ImageName)
 		assert.Equal(t, containerInfo.Status, savedInfo.Status)
+
+		// Test getting container by name
+		savedInfoByName, err := db.GetContainerByName(containerInfo.ContainerName)
+		assert.NoError(t, err, "Error getting container by name from database")
+		assert.Equal(t, containerInfo.ContainerID, savedInfoByName.ContainerID)
 	})
 
 	t.Run("UpdateContainerStatus", func(t *testing.T) {
