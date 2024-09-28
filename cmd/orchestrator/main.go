@@ -2,19 +2,20 @@ package main
 
 import (
 	"fmt"
-	"io"
 	"os"
 
 	"github.com/dgunzy/go-container-orchestrator/internal/logging"
 )
 
 func main() {
-	logFile, err := os.OpenFile("container_manager.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+	err := logging.Setup("./container_manager_logs")
 	if err != nil {
-		fmt.Printf("Error opening log file: %s", err)
+		fmt.Printf("Failed to set up logging: %v\n", err)
+		os.Exit(1)
 	}
-	defer logFile.Close()
+	defer logging.CloseGlobalLogger()
+
 	logger := logging.GetLogger()
-	logger.SetOutput(io.MultiWriter(os.Stdout, logFile))
+	logger.Info("Application started")
 	fmt.Println("Container time")
 }

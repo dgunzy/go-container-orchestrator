@@ -24,3 +24,4 @@ go.work.sum
 # env file
 .env
 note.txt
+container_manager_log/*

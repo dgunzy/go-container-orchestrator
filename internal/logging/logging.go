@@ -2,11 +2,13 @@ package logging
 
 import (
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"runtime"
 	"sync"
+	"time"
+
+	"gopkg.in/natefinch/lumberjack.v2"
 )
 
 type LogLevel int
@@ -19,38 +21,73 @@ const (
 )
 
 type Logger struct {
-	out io.Writer
-	mu  sync.Mutex
+	outputs        map[LogLevel]*lumberjack.Logger
+	combinedOutput *lumberjack.Logger
+	mu             sync.Mutex
 }
 
-func New(out io.Writer) *Logger {
-	return &Logger{
-		out: out,
+var globalLogger *Logger
+
+func Setup(logDir string) error {
+	if err := os.MkdirAll(logDir, os.ModePerm); err != nil {
+		return fmt.Errorf("failed to create log directory: %w", err)
 	}
+
+	logger := &Logger{
+		outputs: make(map[LogLevel]*lumberjack.Logger),
+	}
+
+	logLevels := []struct {
+		level LogLevel
+		name  string
+	}{
+		{DEBUG, "debug"},
+		{INFO, "info"},
+		{WARN, "warn"},
+		{ERROR, "error"},
+	}
+
+	for _, ll := range logLevels {
+		logger.outputs[ll.level] = &lumberjack.Logger{
+			Filename:   filepath.Join(logDir, ll.name+".log"),
+			MaxSize:    10, // megabytes
+			MaxBackups: 3,
+			MaxAge:     7, // days
+		}
+	}
+
+	logger.combinedOutput = &lumberjack.Logger{
+		Filename:   filepath.Join(logDir, "combined.log"),
+		MaxSize:    50, // megabytes
+		MaxBackups: 5,
+		MaxAge:     30, // days
+	}
+
+	globalLogger = logger
+
+	// Start a goroutine to clean up old logs daily
+	go func() {
+		for {
+			time.Sleep(24 * time.Hour)
+			if err := cleanupOldLogs(logDir, 30*24*time.Hour); err != nil {
+				fmt.Printf("Error cleaning up old logs: %v\n", err)
+			}
+		}
+	}()
+
+	return nil
 }
 
-// SetOutput sets the output destination for the logger
-func (l *Logger) SetOutput(out io.Writer) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	l.out = out
+func GetLogger() *Logger {
+	return globalLogger
 }
 
 func (l *Logger) log(level LogLevel, format string, v ...interface{}) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	// Get caller information
-	_, file, line, ok := runtime.Caller(2) // Skip two frames to get the caller of Debug/Info/Warn/Error
-	if !ok {
-		file = "???"
-		line = 0
-	}
-
-	// Use short file name
+	_, file, line, _ := runtime.Caller(2)
 	file = filepath.Base(file)
-
-	// Format the log message
 	levelStr := "INFO"
 	switch level {
 	case DEBUG:
@@ -61,11 +98,14 @@ func (l *Logger) log(level LogLevel, format string, v ...interface{}) {
 		levelStr = "ERROR"
 	}
 
+	timestamp := time.Now().Format("2006-01-02 15:04:05")
 	msg := fmt.Sprintf(format, v...)
-	logLine := fmt.Sprintf("%s: %s:%d %s\n", levelStr, file, line, msg)
+	logLine := fmt.Sprintf("%s %s: %s:%d %s\n", timestamp, levelStr, file, line, msg)
 
-	// Write to output
-	_, _ = l.out.Write([]byte(logLine))
+	if writer, ok := l.outputs[level]; ok {
+		_, _ = writer.Write([]byte(logLine))
+	}
+	_, _ = l.combinedOutput.Write([]byte(logLine))
 }
 
 func (l *Logger) Debug(format string, v ...interface{}) {
@@ -84,15 +124,48 @@ func (l *Logger) Error(format string, v ...interface{}) {
 	l.log(ERROR, format, v...)
 }
 
-// Global logger instance
-var globalLogger *Logger
-
-// init initializes the global logger
-func init() {
-	globalLogger = New(os.Stdout)
+func cleanupOldLogs(logDir string, maxAge time.Duration) error {
+	return filepath.Walk(logDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if !info.IsDir() && time.Since(info.ModTime()) > maxAge {
+			if err := os.Remove(path); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
-// GetLogger returns the global logger instance
-func GetLogger() *Logger {
-	return globalLogger
+// Close flushes and closes all log files
+func (l *Logger) Close() error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	var errs []error
+
+	for _, output := range l.outputs {
+		if err := output.Close(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+
+	if err := l.combinedOutput.Close(); err != nil {
+		errs = append(errs, err)
+	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("errors closing log files: %v", errs)
+	}
+
+	return nil
+}
+
+// CloseGlobalLogger closes the global logger
+func CloseGlobalLogger() error {
+	if globalLogger != nil {
+		return globalLogger.Close()
+	}
+	return nil
 }
