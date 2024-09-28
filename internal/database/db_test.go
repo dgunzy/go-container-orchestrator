@@ -3,7 +3,6 @@ package database
 import (
 	"fmt"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -26,7 +25,6 @@ func TestDatabaseOperations(t *testing.T) {
 			HostPort:      "8080",
 			ContainerPort: "80",
 			Status:        "running",
-			CreatedAt:     time.Now(),
 		}
 
 		err := db.AddContainer(containerInfo)
@@ -53,7 +51,6 @@ func TestDatabaseOperations(t *testing.T) {
 			HostPort:      "8081",
 			ContainerPort: "80",
 			Status:        "running",
-			CreatedAt:     time.Now(),
 		}
 
 		err := db.AddContainer(containerInfo)
@@ -79,7 +76,6 @@ func TestDatabaseOperations(t *testing.T) {
 				HostPort:      fmt.Sprint(8080 + i),
 				ContainerPort: "80",
 				Status:        "running",
-				CreatedAt:     time.Now(),
 			}
 
 			err := db.AddContainer(containerInfo)
@@ -100,7 +96,6 @@ func TestDatabaseOperations(t *testing.T) {
 			HostPort:      "8086",
 			ContainerPort: "80",
 			Status:        "running",
-			CreatedAt:     time.Now(),
 		}
 
 		err := db.AddContainer(containerInfo)

@@ -24,7 +24,7 @@ func TestCreateNewContainer(t *testing.T) {
 	cm, err := NewContainerManager(dockerClient, ":memory:")
 	require.NoError(t, err, "Error creating ContainerManager")
 
-	err = cm.db.InitSchema()
+	err = cm.Db.InitSchema()
 	require.NoError(t, err, "Error initializing database schema")
 
 	config := &ContainerConfig{
@@ -70,7 +70,7 @@ func TestUpdateExistingContainer(t *testing.T) {
 	cm, err := NewContainerManager(dockerClient, ":memory:")
 	require.NoError(t, err, "Error creating ContainerManager")
 
-	err = cm.db.InitSchema()
+	err = cm.Db.InitSchema()
 	require.NoError(t, err, "Error initializing database schema")
 
 	// Create an initial container
@@ -146,7 +146,7 @@ func TestLoadAndStartContainers(t *testing.T) {
 	cm, err := NewContainerManager(dockerClient, ":memory:")
 	require.NoError(t, err, "Error creating ContainerManager")
 
-	err = cm.db.InitSchema()
+	err = cm.Db.InitSchema()
 	require.NoError(t, err, "Error initializing database schema")
 
 	// Create multiple containers
@@ -213,7 +213,7 @@ func TestLoadAndStartContainers(t *testing.T) {
 	assert.Len(t, runningContainers, len(containers), "Not all containers are running")
 
 	// Query the database for the latest container information
-	dbContainers, err := cm.db.ListContainers()
+	dbContainers, err := cm.Db.ListContainers()
 	require.NoError(t, err, "Error listing containers from database")
 	assert.Len(t, dbContainers, len(containers), "Not all containers are in the database")
 

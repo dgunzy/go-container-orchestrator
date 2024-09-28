@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/dgunzy/go-container-orchestrator/internal/logging"
 	_ "github.com/mattn/go-sqlite3"
@@ -19,7 +18,6 @@ type ContainerInfo struct {
 	HostPort      string
 	ContainerPort string
 	Status        string
-	CreatedAt     time.Time
 }
 
 type Database struct {

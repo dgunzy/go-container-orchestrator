@@ -2,6 +2,8 @@ package docker
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"io"
 
 	"github.com/docker/docker/api/types"
@@ -57,9 +59,18 @@ func (d *DockerClient) ExecuteContainerCommand(ctx context.Context, containerID 
 }
 
 func (d *DockerClient) HealthCheck(ctx context.Context, containerID string) (types.ContainerState, error) {
+	if d == nil || d.client == nil {
+		return types.ContainerState{}, errors.New("DockerClient or its client is nil")
+	}
+
 	inspect, err := d.client.ContainerInspect(ctx, containerID)
 	if err != nil {
-		return *inspect.State, err
+		return types.ContainerState{}, fmt.Errorf("failed to inspect container: %w", err)
 	}
+
+	if inspect.State == nil {
+		return types.ContainerState{}, errors.New("container state is nil")
+	}
+
 	return *inspect.State, nil
 }
