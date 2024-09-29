@@ -33,6 +33,9 @@ func (d *DockerClient) RemoveImage(ctx context.Context, imageName string) error 
 
 	return err
 }
+func (d *DockerClient) ListImages(ctx context.Context) ([]image.Summary, error) {
+	return d.client.ImageList(ctx, image.ListOptions{})
+}
 
 func (d *DockerClient) StartContainer(ctx context.Context, containerID string) error {
 	return d.client.ContainerStart(ctx, containerID, container.StartOptions{})

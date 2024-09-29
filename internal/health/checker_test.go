@@ -1,4 +1,4 @@
-package health
+package health_test
 
 import (
 	"context"
@@ -6,7 +6,8 @@ import (
 	"time"
 
 	"github.com/dgunzy/go-container-orchestrator/internal/container"
-	"github.com/dgunzy/go-container-orchestrator/pkg/docker"
+	"github.com/dgunzy/go-container-orchestrator/internal/health"
+	"github.com/dgunzy/go-container-orchestrator/tests"
 	docker_container "github.com/docker/docker/api/types/container"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -18,14 +19,8 @@ func TestHealthyContainer(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	dockerClient, err := docker.NewClient()
-	require.NoError(t, err, "Error creating Docker client")
-
-	cm, err := container.NewContainerManager(dockerClient, ":memory:")
-	require.NoError(t, err, "Error creating ContainerManager")
-
-	err = cm.Db.InitSchema()
-	require.NoError(t, err, "Error initializing database schema")
+	cm := tests.InitTestConfig()
+	defer tests.CleanupTestResources(cm.DockerClient)
 
 	config := &container.ContainerConfig{
 		DomainName:    "test.example.com",
@@ -34,11 +29,11 @@ func TestHealthyContainer(t *testing.T) {
 		Cmd:           []string{"tail", "-f", "/dev/null"},
 	}
 
-	err = cm.CreateNewContainer(ctx, config)
+	err := cm.CreateNewContainer(ctx, config)
 	require.NoError(t, err, "Error creating container")
 
 	// Verify the container was created and is running
-	containers, err := dockerClient.ListContainers(ctx)
+	containers, err := cm.DockerClient.ListContainers(ctx)
 	require.NoError(t, err, "Error listing containers")
 
 	var found bool
@@ -53,7 +48,7 @@ func TestHealthyContainer(t *testing.T) {
 	}
 	assert.True(t, found, "Created container was not found")
 
-	healthChecker := NewHealthChecker(dockerClient, cm.Db, 1*time.Second)
+	healthChecker := health.NewHealthChecker(cm.DockerClient, cm.Db, 1*time.Second)
 
 	healthCheckerCtx, healthCheckerCancel := context.WithTimeout(ctx, 5*time.Second)
 	defer healthCheckerCancel()
@@ -68,11 +63,11 @@ func TestHealthyContainer(t *testing.T) {
 	}
 
 	// Clean up
-	err = dockerClient.StopContainer(ctx, containerID, nil)
+	err = cm.DockerClient.StopContainer(ctx, containerID, nil)
 	assert.NoError(t, err, "Error stopping container")
-	err = dockerClient.RemoveContainer(ctx, containerID, docker_container.RemoveOptions{Force: true})
+	err = cm.DockerClient.RemoveContainer(ctx, containerID, docker_container.RemoveOptions{Force: true})
 	assert.NoError(t, err, "Error removing container")
-	err = dockerClient.RemoveImage(ctx, testImage)
+	err = cm.DockerClient.RemoveImage(ctx, testImage)
 	assert.NoError(t, err, "Error removing image")
 }
 
@@ -80,15 +75,8 @@ func TestContainerKill(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
 
-	dockerClient, err := docker.NewClient()
-	require.NoError(t, err, "Error creating Docker client")
-
-	cm, err := container.NewContainerManager(dockerClient, ":memory:")
-	require.NoError(t, err, "Error creating ContainerManager")
-
-	err = cm.Db.InitSchema()
-	require.NoError(t, err, "Error initializing database schema")
-
+	cm := tests.InitTestConfig()
+	defer tests.CleanupTestResources(cm.DockerClient)
 	config := &container.ContainerConfig{
 		DomainName:    "test.example.com",
 		ImageName:     testImage,
@@ -96,11 +84,11 @@ func TestContainerKill(t *testing.T) {
 		Cmd:           []string{"tail", "-f", "/dev/null"},
 	}
 
-	err = cm.CreateNewContainer(ctx, config)
+	err := cm.CreateNewContainer(ctx, config)
 	require.NoError(t, err, "Error creating container")
 
 	// Verify the container was created and is running
-	containers, err := dockerClient.ListContainers(ctx)
+	containers, err := cm.DockerClient.ListContainers(ctx)
 	require.NoError(t, err, "Error listing containers")
 
 	var found bool
@@ -115,7 +103,7 @@ func TestContainerKill(t *testing.T) {
 	}
 	require.True(t, found, "Created container was not found")
 
-	err = dockerClient.StopContainer(ctx, containerID, nil)
+	err = cm.DockerClient.StopContainer(ctx, containerID, nil)
 	require.NoError(t, err, "Error stopping container")
 	t.Log("Container stopped by test")
 
@@ -123,11 +111,11 @@ func TestContainerKill(t *testing.T) {
 	time.Sleep(2 * time.Second)
 
 	// Verify the container is stopped
-	state, err := dockerClient.HealthCheck(ctx, containerID)
+	state, err := cm.DockerClient.HealthCheck(ctx, containerID)
 	require.NoError(t, err, "Error checking container health")
 	assert.NotEqual(t, "running", state.Status, "Container should not be running")
 
-	healthChecker := NewHealthChecker(dockerClient, cm.Db, 3*time.Second) // Increased interval
+	healthChecker := health.NewHealthChecker(cm.DockerClient, cm.Db, 3*time.Second) // Increased interval
 	healthCheckerCtx, healthCheckerCancel := context.WithTimeout(ctx, 20*time.Second)
 	defer healthCheckerCancel()
 
@@ -137,15 +125,15 @@ func TestContainerKill(t *testing.T) {
 	time.Sleep(10 * time.Second)
 
 	// Verify that the container has been restarted
-	state, err = dockerClient.HealthCheck(ctx, containerID)
+	state, err = cm.DockerClient.HealthCheck(ctx, containerID)
 	require.NoError(t, err, "Error checking container health")
 	assert.Equal(t, "running", state.Status, "Container should have been restarted and running")
 
 	// Clean up
-	err = dockerClient.StopContainer(ctx, containerID, nil)
+	err = cm.DockerClient.StopContainer(ctx, containerID, nil)
 	assert.NoError(t, err, "Error stopping container")
-	err = dockerClient.RemoveContainer(ctx, containerID, docker_container.RemoveOptions{Force: true})
+	err = cm.DockerClient.RemoveContainer(ctx, containerID, docker_container.RemoveOptions{Force: true})
 	assert.NoError(t, err, "Error removing container")
-	err = dockerClient.RemoveImage(ctx, testImage)
+	err = cm.DockerClient.RemoveImage(ctx, testImage)
 	assert.NoError(t, err, "Error removing image")
 }

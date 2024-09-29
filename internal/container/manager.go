@@ -34,8 +34,8 @@ type ContainerConfig struct {
 	Cmd              strslice.StrSlice
 }
 
-func NewContainerManager(DockerClient *docker.DockerClient, DbPath string) (*ContainerManager, error) {
-	Logger := logging.GetLogger()
+func NewContainerManager(DockerClient *docker.DockerClient, DbPath string, logger *logging.Logger) (*ContainerManager, error) {
+
 	Db, err := database.NewDatabase(DbPath)
 	if err != nil {
 		return nil, fmt.Errorf("error creating database: %w", err)
@@ -44,7 +44,7 @@ func NewContainerManager(DockerClient *docker.DockerClient, DbPath string) (*Con
 		DockerClient: DockerClient,
 		PortFinder:   newPortFinder(),
 		Db:           Db,
-		Logger:       Logger,
+		Logger:       logger,
 	}, nil
 }
 
@@ -308,5 +308,43 @@ func (cm *ContainerManager) LoadAndStartContainers(ctx context.Context, Cmd strs
 	}
 
 	cm.Logger.Info("Finished loading and starting containers")
+	return nil
+}
+
+func (cm *ContainerManager) RemoveContainerAndImage(ctx context.Context, containerID string) error {
+	cm.Logger.Info("Removing container: %s", containerID)
+
+	// Get container info for image removal
+	containerInfo, err := cm.Db.GetContainer(containerID)
+	if err != nil {
+		cm.Logger.Error("Error getting container info: %s", err)
+		return fmt.Errorf("error getting container info: %w", err)
+	}
+
+	err = cm.DockerClient.StopContainer(ctx, containerID, nil)
+	if err != nil {
+		cm.Logger.Error("Error stopping container: %s", err)
+		// Continue with removal even if stop fails
+	}
+
+	err = cm.DockerClient.RemoveContainer(ctx, containerID, container.RemoveOptions{Force: true})
+	if err != nil {
+		cm.Logger.Error("Error removing container: %s", err)
+		return fmt.Errorf("error removing container: %w", err)
+	}
+
+	err = cm.Db.DeleteContainer(containerID)
+	if err != nil {
+		cm.Logger.Error("Error removing container info from database: %s", err)
+		return fmt.Errorf("error removing container info from database: %w", err)
+	}
+
+	err = cm.DockerClient.RemoveImage(ctx, containerInfo.ImageName)
+	if err != nil {
+		cm.Logger.Error("Error removing image: %s", err)
+		return fmt.Errorf("error removing image: %w", err)
+	}
+
+	cm.Logger.Info("Container and image removed successfully container: %s image: %s", containerID, containerInfo.ImageName)
 	return nil
 }
