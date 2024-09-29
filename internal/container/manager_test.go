@@ -75,7 +75,7 @@ func TestUpdateExistingContainer(t *testing.T) {
 	require.NoError(t, err, "Error creating initial container")
 
 	// Wait for the container to start
-	time.Sleep(5 * time.Second)
+	time.Sleep(2 * time.Second)
 
 	// Get the container ID from Docker
 	containers, err := cm.DockerClient.ListContainers(ctx)
@@ -180,7 +180,7 @@ func TestLoadAndStartContainers(t *testing.T) {
 	}
 
 	// Wait for containers to stop
-	time.Sleep(3 * time.Second)
+	time.Sleep(2 * time.Second)
 
 	// Use LoadAndStartContainers to bring them back up
 	err := cm.LoadAndStartContainers(ctx, []string{"tail", "-f", "/dev/null"})
@@ -188,7 +188,7 @@ func TestLoadAndStartContainers(t *testing.T) {
 	require.NoError(t, err, "Error loading and starting containers")
 
 	// Wait for containers to start
-	time.Sleep(3 * time.Second)
+	time.Sleep(2 * time.Second)
 
 	// Verify that all containers are running
 	runningContainers, err := cm.DockerClient.ListContainers(ctx)

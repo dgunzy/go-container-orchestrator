@@ -98,7 +98,17 @@ func (s *Server) handleWebhook(w http.ResponseWriter, r *http.Request) {
 		respMsg = "Container created successfully"
 	case "update":
 		s.logger.Info("Updating existing container")
+		existingContainer, err := s.containerManager.Db.GetContainerByName(payload.ContainerName)
+		if err != nil {
+			s.logger.Error("Failed to get existing container: %v", err)
+			http.Error(w, fmt.Sprintf("Internal server error: %v", err), http.StatusInternalServerError)
+		}
+		config.ContainerID = existingContainer.ContainerID
 		err = s.containerManager.UpdateExistingContainer(r.Context(), config)
+		if err != nil {
+			s.logger.Error("Failed to update container: %v", err)
+			http.Error(w, fmt.Sprintf("Internal server error: %v", err), http.StatusInternalServerError)
+		}
 		respMsg = "Container updated successfully"
 	default:
 		s.logger.Error("Invalid action: %s", payload.Action)

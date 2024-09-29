@@ -24,7 +24,6 @@ func InitTestConfig() (manger container.ContainerManager) {
 		fmt.Printf("Failed to set up logging: %v\n", err)
 		os.Exit(1)
 	}
-	defer logging.CloseGlobalLogger()
 
 	logger := logging.GetLogger()
 
@@ -65,5 +64,6 @@ func CleanupTestResources(dockerClient *docker.DockerClient) {
 			}
 		}
 	}
+	logging.CloseGlobalLogger()
 
 }

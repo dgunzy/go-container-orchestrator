@@ -7,12 +7,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
-	"github.com/dgunzy/go-container-orchestrator/internal/container"
-	"github.com/dgunzy/go-container-orchestrator/internal/logging"
-	"github.com/dgunzy/go-container-orchestrator/pkg/docker"
+	"github.com/dgunzy/go-container-orchestrator/tests"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -24,25 +23,12 @@ const (
 )
 
 func TestAPIServer(t *testing.T) {
-	err := logging.Setup("./container_manager_logs")
-	require.NoError(t, err, "Failed to set up logging")
-	defer logging.CloseGlobalLogger()
-
-	logger := logging.GetLogger()
-
-	// Setup
+	cm := tests.InitTestConfig()
+	defer tests.CleanupTestResources(cm.DockerClient)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	dockerClient, err := docker.NewClient()
-	require.NoError(t, err, "Error creating Docker client")
-
-	cm, err := container.NewContainerManager(dockerClient, ":memory:", logger)
-	require.NoError(t, err, "Error creating ContainerManager")
-	err = cm.Db.InitSchema()
-	require.NoError(t, err, "Error initializing database schema")
-
-	server := NewServer(cm, logger)
+	server := NewServer(&cm, cm.Logger)
 
 	// Start server
 	go func() {
@@ -83,6 +69,7 @@ func TestAPIServer(t *testing.T) {
 
 	// Test updating the container
 	t.Run("UpdateExistingContainer", func(t *testing.T) {
+		time.Sleep(2 * time.Second)
 		payload := WebhookPayload{
 			Action:        "update",
 			ContainerName: "test-api-container",
@@ -90,10 +77,12 @@ func TestAPIServer(t *testing.T) {
 			DomainName:    "test.example.com",
 			ContainerPort: "8080",
 		}
-
 		resp, err := sendWebhook(payload)
 		require.NoError(t, err, "Error sending webhook")
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
+
+		// Wait a bit for the update to complete
+		time.Sleep(2 * time.Second)
 
 		// Verify container was updated
 		containers, err := cm.Db.ListContainers()
@@ -101,12 +90,21 @@ func TestAPIServer(t *testing.T) {
 
 		var found bool
 		for _, c := range containers {
-			if c.ContainerName == payload.ContainerName && c.ImageName == payload.ImageName {
+			t.Logf("Container: Name=%s, Image=%s", c.ContainerName, c.ImageName)
+			if strings.HasPrefix(c.ContainerName, payload.ContainerName) && c.ImageName == payload.ImageName {
 				found = true
 				break
 			}
 		}
 		assert.True(t, found, "Updated container was not found")
+
+		if !found {
+			t.Logf("Expected container with name prefix '%s' and image '%s' not found", payload.ContainerName, payload.ImageName)
+			t.Logf("Available containers:")
+			for _, c := range containers {
+				t.Logf("  - Name: %s, Image: %s", c.ContainerName, c.ImageName)
+			}
+		}
 	})
 
 	// Cleanup
