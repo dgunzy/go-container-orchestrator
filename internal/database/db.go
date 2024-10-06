@@ -108,19 +108,38 @@ func (d *Database) GetContainer(containerID string) (*ContainerInfo, error) {
 	return &info, nil
 }
 
-func (d *Database) GetContainerByName(containerName string) (*ContainerInfo, error) {
-	d.logger.Info("Fetching container by name: %s", containerName)
-	var info ContainerInfo
-	err := d.db.QueryRow("SELECT * FROM containers WHERE container_name = ?", containerName).Scan(
-		&info.ID, &info.ContainerID, &info.ContainerName, &info.ImageName,
-		&info.DomainName, &info.HostPort, &info.ContainerPort, &info.Status)
+func (d *Database) GetContainersByPartialName(partialName string) ([]ContainerInfo, error) {
+	d.logger.Info("Fetching containers by partial name: %s", partialName)
+	var containers []ContainerInfo
+
+	// Use LIKE with % wildcards for partial matching
+	query := "SELECT * FROM containers WHERE container_name LIKE ?"
+	rows, err := d.db.Query(query, "%"+partialName+"%")
 	if err != nil {
-		if err == sql.ErrNoRows {
-			return nil, fmt.Errorf("no container found with name %s", containerName)
-		}
-		return nil, fmt.Errorf("failed to get container by name: %w", err)
+		return nil, fmt.Errorf("failed to query containers by name: %w", err)
 	}
-	return &info, nil
+	defer rows.Close()
+
+	for rows.Next() {
+		var info ContainerInfo
+		err := rows.Scan(
+			&info.ID, &info.ContainerID, &info.ContainerName, &info.ImageName,
+			&info.DomainName, &info.HostPort, &info.ContainerPort, &info.Status)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan container row: %w", err)
+		}
+		containers = append(containers, info)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating container rows: %w", err)
+	}
+
+	if len(containers) == 0 {
+		return nil, fmt.Errorf("no containers found with name containing '%s'", partialName)
+	}
+
+	return containers, nil
 }
 
 func (d *Database) ListContainers() ([]ContainerInfo, error) {

@@ -15,7 +15,11 @@ func (cm *ContainerManager) getContainerInfo(config *ContainerConfig) (*database
 	if config.ContainerID != "" {
 		return cm.Db.GetContainer(config.ContainerID)
 	}
-	return cm.Db.GetContainerByName(config.ContainerName)
+	containers, err := cm.Db.GetContainersByPartialName(config.ContainerName)
+	if err != nil || len(containers) == 0 || len(containers) > 1 {
+		return nil, fmt.Errorf("error getting container info: %w", err)
+	}
+	return &containers[0], nil
 }
 
 func (cm *ContainerManager) pullImage(ctx context.Context, config *ContainerConfig) error {

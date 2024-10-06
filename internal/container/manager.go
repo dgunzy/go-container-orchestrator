@@ -28,6 +28,7 @@ type ContainerConfig struct {
 	RegistryUsername string
 	RegistryPassword string
 	Cmd              strslice.StrSlice
+	Status           string
 }
 
 func NewContainerManager(DockerClient *docker.DockerClient, DbPath string, logger *logging.Logger) (*ContainerManager, error) {
@@ -69,6 +70,7 @@ func (cm *ContainerManager) CreateNewContainer(ctx context.Context, config *Cont
 	return nil
 }
 
+// the config can just contain the container name and the new image name
 func (cm *ContainerManager) UpdateExistingContainer(ctx context.Context, config *ContainerConfig) error {
 	cm.Logger.Info("Updating existing container: %s", config.ContainerName)
 
@@ -184,4 +186,34 @@ func (cm *ContainerManager) RemoveContainerAndImage(ctx context.Context, contain
 
 	cm.Logger.Info("Container and image removed successfully container: %s image: %s", containerID, containerInfo.ImageName)
 	return nil
+}
+
+func (cm *ContainerManager) ListContainers() ([]ContainerConfig, error) {
+	dbContainers, err := cm.Db.ListContainers()
+	if err != nil {
+		cm.Logger.Error("Error listing containers from database: %s", err)
+		return nil, fmt.Errorf("error listing containers from database: %w", err)
+	}
+	var containers []ContainerConfig
+	for _, c := range dbContainers {
+		containers = append(containers, ContainerConfig{
+			DomainName:    c.DomainName,
+			ImageName:     c.ImageName,
+			ContainerName: c.ContainerName,
+			ContainerID:   c.ContainerID,
+			ContainerPort: c.ContainerPort,
+			HostPort:      c.HostPort,
+			Status:        cm.ContainerStatus(c.ContainerID),
+		})
+	}
+	return containers, nil
+}
+
+func (cm *ContainerManager) ContainerStatus(containerId string) string {
+	state, err := cm.DockerClient.HealthCheck(context.Background(), containerId)
+	if err != nil {
+		cm.Logger.Error("Error checking container %s: %s", containerId, err)
+		return ""
+	}
+	return state.Status
 }
