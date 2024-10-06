@@ -3,18 +3,24 @@ package container
 import (
 	"context"
 	"fmt"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"github.com/dgunzy/go-container-orchestrator/internal/database"
+	"github.com/dgunzy/go-container-orchestrator/internal/health"
 	"github.com/dgunzy/go-container-orchestrator/internal/logging"
 	"github.com/dgunzy/go-container-orchestrator/pkg/docker"
 	"github.com/docker/docker/api/types/strslice"
 )
 
 type ContainerManager struct {
-	DockerClient *docker.DockerClient
-	portFinder   *portFinder
-	Db           *database.Database
-	Logger       *logging.Logger
+	DockerClient  *docker.DockerClient
+	portFinder    *portFinder
+	Db            *database.Database
+	Logger        *logging.Logger
+	HealthChecker *health.HealthChecker
 	// TODO add nginx
 }
 
@@ -31,16 +37,17 @@ type ContainerConfig struct {
 	Status           string
 }
 
-func NewContainerManager(DockerClient *docker.DockerClient, DbPath string, logger *logging.Logger) (*ContainerManager, error) {
+func NewContainerManager(DockerClient *docker.DockerClient, DbPath string, logger *logging.Logger, healthChecker *health.HealthChecker) (*ContainerManager, error) {
 	Db, err := database.NewDatabase(DbPath)
 	if err != nil {
 		return nil, fmt.Errorf("error creating database: %w", err)
 	}
 	return &ContainerManager{
-		DockerClient: DockerClient,
-		portFinder:   newPortFinder(),
-		Db:           Db,
-		Logger:       logger,
+		DockerClient:  DockerClient,
+		portFinder:    newPortFinder(),
+		Db:            Db,
+		Logger:        logger,
+		HealthChecker: healthChecker,
 	}, nil
 }
 
@@ -216,4 +223,33 @@ func (cm *ContainerManager) ContainerStatus(containerId string) string {
 		return ""
 	}
 	return state.Status
+}
+
+func (cm *ContainerManager) RunAsDaemon(ctx context.Context) error {
+	cm.Logger.Info("Starting ContainerManager daemon")
+
+	// Initialize the HealthChecker if it's not already initialized
+	if cm.HealthChecker == nil {
+		cm.HealthChecker = health.NewHealthChecker(cm.DockerClient, cm.Db, 1*time.Minute, cm.Logger)
+	}
+
+	// Create a channel to receive OS signals
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+
+	// Start the health checker in a separate goroutine
+	go cm.HealthChecker.Start(ctx)
+
+	// Main daemon loop
+	for {
+		select {
+		case <-ctx.Done():
+			cm.Logger.Info("Shutting down ContainerManager daemon")
+			return nil
+		case sig := <-sigChan:
+			cm.Logger.Info("Received signal: %v", sig)
+			return nil
+
+		}
+	}
 }

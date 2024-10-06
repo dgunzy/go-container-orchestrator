@@ -5,20 +5,33 @@ import (
 	"github.com/spf13/cobra"
 )
 
-type Command struct {
-	*cobra.Command
-	CM *container.ContainerManager
+type CLI struct {
+	rootCmd *cobra.Command
+	cm      *container.ContainerManager
 }
 
-func NewCommand(use string, short string, run func(cmd *Command, args []string)) *Command {
-	c := &Command{
-		Command: &cobra.Command{
-			Use:   use,
-			Short: short,
+func NewCLI(cm *container.ContainerManager) *CLI {
+	cli := &CLI{
+		rootCmd: &cobra.Command{
+			Use:   "container-orchestrator",
+			Short: "A container orchestrator CLI",
 		},
+		cm: cm,
 	}
-	c.Run = func(cmd *cobra.Command, args []string) {
-		run(c, args)
-	}
-	return c
+	cli.initCommands()
+	return cli
+}
+
+func (cli *CLI) Run() error {
+	return cli.rootCmd.Execute()
+}
+
+func (cli *CLI) initCommands() {
+	cli.rootCmd.AddCommand(
+		cli.newCreateCommand(),
+		cli.newListCommand(),
+		cli.newRemoveCommand(),
+		cli.newUpdateCommand(),
+		cli.newServeCommand(),
+	)
 }

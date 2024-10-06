@@ -6,24 +6,38 @@ import (
 	"time"
 
 	"github.com/dgunzy/go-container-orchestrator/internal/database"
-	"github.com/dgunzy/go-container-orchestrator/internal/logging"
-	"github.com/dgunzy/go-container-orchestrator/pkg/docker"
 	"github.com/docker/docker/api/types"
 )
 
-type HealthChecker struct {
-	dockerClient *docker.DockerClient
-	db           *database.Database
-	interval     time.Duration
-	logger       *logging.Logger
+type DockerClient interface {
+	HealthCheck(ctx context.Context, containerID string) (types.ContainerState, error)
+	StartContainer(ctx context.Context, containerID string) error
+	RestartContainer(ctx context.Context, containerID string, timeout *int) error
 }
 
-func NewHealthChecker(dockerClient *docker.DockerClient, db *database.Database, interval time.Duration) *HealthChecker {
+type Database interface {
+	ListContainers() ([]database.ContainerInfo, error)
+}
+
+type Logger interface {
+	Info(format string, args ...interface{})
+	Warn(format string, args ...interface{})
+	Error(format string, args ...interface{})
+}
+
+type HealthChecker struct {
+	dockerClient DockerClient
+	db           Database
+	interval     time.Duration
+	logger       Logger
+}
+
+func NewHealthChecker(dockerClient DockerClient, db Database, interval time.Duration, logger Logger) *HealthChecker {
 	return &HealthChecker{
 		dockerClient: dockerClient,
 		db:           db,
 		interval:     interval,
-		logger:       logging.GetLogger(),
+		logger:       logger,
 	}
 }
 

@@ -5,15 +5,19 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/dgunzy/go-container-orchestrator/internal/container"
+	"github.com/dgunzy/go-container-orchestrator/internal/database"
+	"github.com/dgunzy/go-container-orchestrator/internal/health"
 	"github.com/dgunzy/go-container-orchestrator/internal/logging"
-	"github.com/dgunzy/go-container-orchestrator/pkg/docker"
+
+	internal_client "github.com/dgunzy/go-container-orchestrator/pkg/docker"
 	docker_container "github.com/docker/docker/api/types/container"
 )
 
 // returns an initialized struct of type DockerClient
-func InitTestConfig() (manger container.ContainerManager) {
+func InitTestConfig() container.ContainerManager {
 	// Remove old logs
 	err := os.RemoveAll("../../container_manager_logs")
 	if err != nil {
@@ -27,20 +31,38 @@ func InitTestConfig() (manger container.ContainerManager) {
 
 	logger := logging.GetLogger()
 
-	dockerClient, err := docker.NewClient()
+	dockerClient, err := internal_client.NewClient()
 	if err != nil {
 		fmt.Printf("Error creating Docker client: %v\n", err)
+		os.Exit(1)
 	}
 
-	cm, err := container.NewContainerManager(dockerClient, ":memory:", logger)
+	db, err := database.NewDatabase(":memory:")
+	if err != nil {
+		fmt.Printf("Error creating database: %v\n", err)
+		os.Exit(1)
+	}
+	err = db.InitSchema()
+	if err != nil {
+		fmt.Printf("Error initializing database schema: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Create HealthChecker
+	healthChecker := health.NewHealthChecker(dockerClient, db, 5*time.Minute, logger)
+
+	// Create ContainerManager
+	cm, err := container.NewContainerManager(dockerClient, ":memory:", logger, healthChecker)
 	if err != nil {
 		fmt.Printf("Error creating ContainerManager: %v\n", err)
+		os.Exit(1)
 	}
 	cm.Db.InitSchema()
+
 	return *cm
 }
 
-func CleanupTestResources(dockerClient *docker.DockerClient) {
+func CleanupTestResources(dockerClient *internal_client.DockerClient) {
 	ctx := context.Background()
 
 	// Remove test containers

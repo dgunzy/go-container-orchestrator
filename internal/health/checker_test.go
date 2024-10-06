@@ -48,7 +48,7 @@ func TestHealthyContainer(t *testing.T) {
 	}
 	assert.True(t, found, "Created container was not found")
 
-	healthChecker := health.NewHealthChecker(cm.DockerClient, cm.Db, 1*time.Second)
+	healthChecker := health.NewHealthChecker(cm.DockerClient, cm.Db, 1*time.Second, cm.Logger)
 
 	healthCheckerCtx, healthCheckerCancel := context.WithTimeout(ctx, 5*time.Second)
 	defer healthCheckerCancel()
@@ -115,7 +115,7 @@ func TestContainerKill(t *testing.T) {
 	require.NoError(t, err, "Error checking container health")
 	assert.NotEqual(t, "running", state.Status, "Container should not be running")
 
-	healthChecker := health.NewHealthChecker(cm.DockerClient, cm.Db, 3*time.Second) // Increased interval
+	healthChecker := health.NewHealthChecker(cm.DockerClient, cm.Db, 3*time.Second, cm.Logger) // Increased interval
 	healthCheckerCtx, healthCheckerCancel := context.WithTimeout(ctx, 20*time.Second)
 	defer healthCheckerCancel()
 
