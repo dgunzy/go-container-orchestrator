@@ -5,49 +5,27 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
-	"time"
 
 	"github.com/dgunzy/go-container-orchestrator/cmd/cli"
+	"github.com/dgunzy/go-container-orchestrator/internal/container"
 	"github.com/dgunzy/go-container-orchestrator/internal/logging"
 )
 
 func main() {
-	logPath := os.Getenv("LOG_PATH")
-	if logPath == "" {
-		logPath = "./container_manager_logs"
-	}
-	// Set up logging
-	if err := logging.Setup(logPath); err != nil {
+	if err := logging.Setup("./container_manager_logs"); err != nil {
 		fmt.Printf("Failed to set up logging: %v\n", err)
 		os.Exit(1)
 	}
 	logger := logging.GetLogger()
 
-	// Initialize the CLI
-	c, err := cli.NewCLI()
+	cm, err := container.NewContainerManager()
 	if err != nil {
-		logger.Error("Failed to initialize CLI: %v", err)
+		logger.Error("Failed to initialize ContainerManager: %v", err)
 		os.Exit(1)
 	}
 
-	// Check if we're running in daemon mode
-	if len(os.Args) > 1 && os.Args[1] == "serve" {
-		runContainerManager(c)
-	} else {
-		// Run CLI commands
-		if err := c.Run(); err != nil {
-			logger.Error("CLI command failed: %v", err)
-			os.Exit(1)
-		}
-	}
-}
-
-func runContainerManager(c *cli.CLI) {
-	logger := logging.GetLogger()
-	logger.Info("Starting container manager in daemon mode")
-
-	// Create a context that we can cancel
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -55,35 +33,37 @@ func runContainerManager(c *cli.CLI) {
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
-	// Run the container manager in a goroutine
-	errChan := make(chan error, 1)
+	var wg sync.WaitGroup
+
+	// Start ContainerManager
+	wg.Add(1)
 	go func() {
-		errChan <- c.GetContainerManager().RunAsDaemon(ctx)
+		defer wg.Done()
+		if err := cm.RunAsDaemon(ctx); err != nil {
+			logger.Error("Container manager failed: %v", err)
+		}
 	}()
 
-	// Wait for termination signal or error
-	select {
-	case sig := <-sigChan:
-		logger.Info("Received termination signal: %v. Shutting down...", sig)
-	case err := <-errChan:
+	// Start CLI
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		c, err := cli.NewCLI(cm)
 		if err != nil {
-			logger.Error("Container manager failed: %v", err)
-		} else {
-			logger.Info("Container manager stopped")
+			logger.Error("Failed to initialize CLI: %v", err)
+			return
 		}
-	}
+		if err := c.RunInteractive(ctx); err != nil {
+			logger.Error("CLI failed: %v", err)
+		}
+	}()
 
-	// Cancel the context to stop the container manager
+	// Wait for termination signal
+	<-sigChan
+	logger.Info("Received termination signal. Shutting down...")
 	cancel()
 
-	// Allow some time for graceful shutdown
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer shutdownCancel()
-
-	select {
-	case <-errChan:
-		logger.Info("Container manager stopped gracefully")
-	case <-shutdownCtx.Done():
-		logger.Warn("Graceful shutdown timed out")
-	}
+	// Wait for goroutines to finish
+	wg.Wait()
+	logger.Info("Shutdown complete")
 }

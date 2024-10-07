@@ -5,11 +5,8 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/dgunzy/go-container-orchestrator/internal/container"
-	"github.com/dgunzy/go-container-orchestrator/internal/database"
-	"github.com/dgunzy/go-container-orchestrator/internal/health"
 	"github.com/dgunzy/go-container-orchestrator/internal/logging"
 
 	internal_client "github.com/dgunzy/go-container-orchestrator/pkg/docker"
@@ -23,28 +20,8 @@ func InitTestConfig() container.ContainerManager {
 	if err != nil {
 		fmt.Printf("Failed to remove old logs: %v\n", err)
 	}
-	err = logging.Setup("../../container_manager_logs")
-	if err != nil {
-		fmt.Printf("Failed to set up logging: %v\n", err)
-		os.Exit(1)
-	}
 
-	logger := logging.GetLogger()
-
-	dockerClient, err := internal_client.NewClient()
-	if err != nil {
-		fmt.Printf("Error creating Docker client: %v\n", err)
-		os.Exit(1)
-	}
-
-	db, err := database.NewDatabase(":memory:")
-	if err != nil {
-		fmt.Printf("Error creating database: %v\n", err)
-		os.Exit(1)
-	}
-	healthChecker := health.NewHealthChecker(dockerClient, db, 5*time.Minute, logger)
-
-	cm, err := container.NewContainerManager(dockerClient, ":memory:", logger, healthChecker)
+	cm, err := container.NewContainerManager()
 	if err != nil {
 		fmt.Printf("Error creating ContainerManager: %v\n", err)
 		os.Exit(1)

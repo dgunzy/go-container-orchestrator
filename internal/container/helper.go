@@ -3,6 +3,7 @@ package container
 import (
 	"context"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/dgunzy/go-container-orchestrator/internal/database"
@@ -113,4 +114,11 @@ func (cm *ContainerManager) updateDatabase(oldInfo *database.ContainerInfo, newI
 	}
 
 	return nil
+}
+func getLogPath() string {
+	logPath := os.Getenv("LOG_PATH")
+	if logPath == "" {
+		logPath = "./container_manager_logs"
+	}
+	return logPath
 }

@@ -3,6 +3,7 @@ package container
 import (
 	"context"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/dgunzy/go-container-orchestrator/internal/database"
@@ -10,6 +11,7 @@ import (
 	"github.com/dgunzy/go-container-orchestrator/internal/logging"
 	"github.com/dgunzy/go-container-orchestrator/pkg/docker"
 	"github.com/docker/docker/api/types/strslice"
+	"github.com/joho/godotenv"
 )
 
 type ContainerManager struct {
@@ -34,18 +36,49 @@ type ContainerConfig struct {
 	Status           string
 }
 
-func NewContainerManager(DockerClient *docker.DockerClient, DbPath string, logger *logging.Logger, healthChecker *health.HealthChecker) (*ContainerManager, error) {
-	Db, err := database.NewDatabase(DbPath)
+func NewContainerManager() (*ContainerManager, error) {
+	if err := godotenv.Load(); err != nil {
+		fmt.Println("Warning: Error loading .env file")
+	}
+	// Set up logging
+	logPath := getLogPath()
+	if err := logging.Setup(logPath); err != nil {
+		fmt.Printf("Failed to set up logging: %v\n", err)
+		os.Exit(1)
+	}
+	logger := logging.GetLogger()
+
+	dockerClient, err := docker.NewClient()
+	if err != nil {
+		return nil, fmt.Errorf("error creating Docker client: %w", err)
+	}
+
+	DBPath := os.Getenv("DB_PATH")
+	if DBPath == "" {
+		logger.Warn("No DB_PATH environment variable set, using default database path")
+		DBPath = "./container_manager.db"
+	}
+
+	db, err := database.NewDatabase(DBPath)
 	if err != nil {
 		return nil, fmt.Errorf("error creating database: %w", err)
 	}
-	return &ContainerManager{
-		DockerClient:  DockerClient,
-		portFinder:    newPortFinder(),
-		Db:            Db,
+
+	if err := db.InitSchema(); err != nil {
+		return nil, fmt.Errorf("error initializing database schema: %w", err)
+	}
+
+	healthChecker := health.NewHealthChecker(dockerClient, db, 5*time.Minute, logger)
+
+	cm := &ContainerManager{
+		DockerClient:  dockerClient,
+		Db:            db,
 		Logger:        logger,
 		HealthChecker: healthChecker,
-	}, nil
+		portFinder:    newPortFinder(),
+	}
+
+	return cm, nil
 }
 
 func (cm *ContainerManager) CreateNewContainer(ctx context.Context, config *ContainerConfig) error {

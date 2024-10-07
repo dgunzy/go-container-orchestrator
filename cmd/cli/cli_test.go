@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/dgunzy/go-container-orchestrator/cmd/cli"
+	"github.com/dgunzy/go-container-orchestrator/internal/container"
 	"github.com/dgunzy/go-container-orchestrator/tests"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -17,8 +18,10 @@ func TestCLIIntegration(t *testing.T) {
 	os.Setenv("DB_PATH", ":memory:")
 	os.Setenv("LOG_PATH", "../../test_logs")
 
-	// Initialize CLI
-	c, err := cli.NewCLI()
+	cm, err := container.NewContainerManager()
+	require.NoError(t, err, "Failed to initialize ContainerManager")
+
+	c, err := cli.NewCLI(cm)
 	require.NoError(t, err, "Failed to initialize CLI")
 
 	defer tests.CleanupTestResources(c.GetContainerManager().DockerClient)
