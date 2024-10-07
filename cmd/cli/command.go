@@ -10,18 +10,6 @@ type CLI struct {
 	cm      *container.ContainerManager
 }
 
-func NewCLI(cm *container.ContainerManager) *CLI {
-	cli := &CLI{
-		rootCmd: &cobra.Command{
-			Use:   "container-orchestrator",
-			Short: "A container orchestrator CLI",
-		},
-		cm: cm,
-	}
-	cli.initCommands()
-	return cli
-}
-
 func (cli *CLI) Run() error {
 	return cli.rootCmd.Execute()
 }
@@ -34,4 +22,13 @@ func (cli *CLI) initCommands() {
 		cli.newUpdateCommand(),
 		cli.newServeCommand(),
 	)
+}
+func (cli *CLI) ExecuteWithArgs(args []string) error {
+	cli.rootCmd.SetArgs(args)
+	return cli.rootCmd.Execute()
+}
+
+// Expose ContainerManager for testing
+func (cli *CLI) GetContainerManager() *container.ContainerManager {
+	return cli.cm
 }

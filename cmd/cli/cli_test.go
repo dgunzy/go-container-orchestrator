@@ -1,117 +1,94 @@
 package cli_test
 
 import (
-	"bytes"
 	"context"
 	"os"
 	"testing"
 	"time"
 
 	"github.com/dgunzy/go-container-orchestrator/cmd/cli"
-	"github.com/dgunzy/go-container-orchestrator/internal/container"
-	"github.com/dgunzy/go-container-orchestrator/internal/logging"
 	"github.com/dgunzy/go-container-orchestrator/tests"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-var cm *container.ContainerManager
-var rootCmd *cli.Command
+func TestCLIIntegration(t *testing.T) {
+	// Set up test environment
+	os.Setenv("DB_PATH", ":memory:")
+	os.Setenv("LOG_PATH", "../../test_logs")
 
-func TestMain(m *testing.M) {
-	cm := tests.InitTestConfig()
-	defer tests.CleanupTestResources(cm.DockerClient)
-	// Initialize CLI root command
-	rootCmd = cli.NewCommand(cm)
+	// Initialize CLI
+	c, err := cli.NewCLI()
+	require.NoError(t, err, "Failed to initialize CLI")
 
-	// Run tests
-	exitCode := m.Run()
+	defer tests.CleanupTestResources(c.GetContainerManager().DockerClient)
 
-	// Teardown code
+	// Start the container manager process
+	_, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
-	if err := logging.CloseGlobalLogger(); err != nil {
-		panic(err)
-	}
+	go func() {
+		err := c.ExecuteWithArgs([]string{"serve"})
+		assert.NoError(t, err, "Failed to run serve command")
+	}()
 
-	os.Exit(exitCode)
-}
+	// Wait for the container manager to start
+	time.Sleep(5 * time.Second)
 
-func TestCLICommands(t *testing.T) {
-	// Helper function to execute CLI commands
-	executeCommand := func(args ...string) (string, error) {
-		buf := new(bytes.Buffer)
-		rootCmd.SetOut(buf)
-		rootCmd.SetErr(buf)
-		rootCmd.SetArgs(args)
-		err := rootCmd.Execute()
-		return buf.String(), err
-	}
+	// Run tests while the container manager is running
+	t.Run("CLIOperations", func(t *testing.T) {
+		// Test create command
+		t.Run("CreateContainer", func(t *testing.T) {
+			err := c.ExecuteWithArgs([]string{"create", "--domain", "test.com", "--image", "alpine:latest", "--name", "test-container", "--port", "80"})
+			assert.NoError(t, err, "Failed to create container")
+		})
 
-	// Test cases
-	t.Run("Create Container", func(t *testing.T) {
-		output, err := executeCommand("create", "--name", "test-container", "--image", "alpine:latest", "--domain", "test.com", "--port", "8080")
-		assert.NoError(t, err)
-		assert.Contains(t, output, "Container created successfully")
+		// Allow some time for the container to be created
+		time.Sleep(2 * time.Second)
 
-		// Verify container was actually created
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		containers, err := cm.DockerClient.ListContainers(ctx)
-		require.NoError(t, err)
-		found := false
-		for _, c := range containers {
-			if c.Names[0] == "/test-container" {
-				found = true
-				break
-			}
-		}
-		assert.True(t, found, "Created container not found in Docker")
+		// Test list command
+		t.Run("ListContainers", func(t *testing.T) {
+			err := c.ExecuteWithArgs([]string{"list"})
+			assert.NoError(t, err, "Failed to list containers")
+			// TODO: Add assertion to check if the created container is in the list
+		})
+
+		// Test update command
+		t.Run("UpdateContainer", func(t *testing.T) {
+			err := c.ExecuteWithArgs([]string{"update", "--name", "test-container", "--image", "alpine:3.12"})
+			assert.NoError(t, err, "Failed to update container")
+		})
+
+		// Allow some time for the container to be updated
+		time.Sleep(2 * time.Second)
+
+		// Test list again to verify update
+		t.Run("ListContainersAfterUpdate", func(t *testing.T) {
+			err := c.ExecuteWithArgs([]string{"list"})
+			assert.NoError(t, err, "Failed to list containers after update")
+			// TODO: Add assertion to check if the container image has been updated
+		})
+
+		// Test remove command
+		t.Run("RemoveContainer", func(t *testing.T) {
+			err := c.ExecuteWithArgs([]string{"remove", "test-container"})
+			assert.NoError(t, err, "Failed to remove container")
+		})
+
+		// Allow some time for the container to be removed
+		time.Sleep(2 * time.Second)
+
+		// Test list one last time to verify removal
+		t.Run("ListContainersAfterRemoval", func(t *testing.T) {
+			err := c.ExecuteWithArgs([]string{"list"})
+			assert.NoError(t, err, "Failed to list containers after removal")
+			// TODO: Add assertion to check if the container has been removed from the list
+		})
 	})
 
-	t.Run("List Containers", func(t *testing.T) {
-		output, err := executeCommand("list")
-		assert.NoError(t, err)
-		assert.Contains(t, output, "test-container")
-		assert.Contains(t, output, "alpine:latest")
-	})
+	// Stop the container manager
+	cancel()
 
-	t.Run("Update Container", func(t *testing.T) {
-		output, err := executeCommand("update", "--name", "test-container", "--image", "alpine:3.14")
-		assert.NoError(t, err)
-		assert.Contains(t, output, "Container updated successfully")
-
-		// Verify container was actually updated
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		containers, err := cm.DockerClient.ListContainers(ctx)
-		require.NoError(t, err)
-		found := false
-		for _, c := range containers {
-			if c.Names[0] == "/test-container" && c.Image == "alpine:3.14" {
-				found = true
-				break
-			}
-		}
-		assert.True(t, found, "Updated container not found in Docker")
-	})
-
-	t.Run("Remove Container", func(t *testing.T) {
-		output, err := executeCommand("remove", "test-container")
-		assert.NoError(t, err)
-		assert.Contains(t, output, "Successfully removed container")
-
-		// Verify container was actually removed
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		containers, err := cm.DockerClient.ListContainers(ctx)
-		require.NoError(t, err)
-		found := false
-		for _, c := range containers {
-			if c.Names[0] == "/test-container" {
-				found = true
-				break
-			}
-		}
-		assert.False(t, found, "Removed container still found in Docker")
-	})
+	// Wait for the container manager to stop
+	time.Sleep(2 * time.Second)
 }

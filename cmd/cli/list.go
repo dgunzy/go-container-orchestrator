@@ -5,22 +5,21 @@ import (
 
 	"github.com/fatih/color"
 	"github.com/olekukonko/tablewriter"
+	"github.com/spf13/cobra"
 )
 
-var listCmd = NewCommand(
-	"list",
-	"List all containers and their status",
-	runList,
-)
-
-func init() {
-	rootCmd.AddCommand(listCmd.Command)
+func (cli *CLI) newListCommand() *cobra.Command {
+	return &cobra.Command{
+		Use:   "list",
+		Short: "List all containers and their status",
+		Run:   cli.runList,
+	}
 }
 
-func runList(cmd *Command, args []string) {
-	containers, err := cmd.CM.ListContainers()
+func (cli *CLI) runList(cmd *cobra.Command, args []string) {
+	containers, err := cli.cm.ListContainers()
 	if err != nil {
-		cmd.CM.Logger.Error("Error listing containers: %v", err)
+		cli.cm.Logger.Error("Error listing containers: %v", err)
 		return
 	}
 

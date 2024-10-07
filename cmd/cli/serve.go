@@ -1,6 +1,10 @@
 package cli
 
-import "github.com/spf13/cobra"
+import (
+	"context"
+
+	"github.com/spf13/cobra"
+)
 
 func (cli *CLI) newServeCommand() *cobra.Command {
 	return &cobra.Command{
@@ -8,7 +12,8 @@ func (cli *CLI) newServeCommand() *cobra.Command {
 		Short: "Run the container manager in daemon mode",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			// Implement continuous running logic here
-			return cli.cm.RunAsDaemon()
+			ctx := context.Background()
+			return cli.cm.RunAsDaemon(ctx)
 		},
 	}
 }

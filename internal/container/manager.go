@@ -3,9 +3,6 @@ package container
 import (
 	"context"
 	"fmt"
-	"os"
-	"os/signal"
-	"syscall"
 	"time"
 
 	"github.com/dgunzy/go-container-orchestrator/internal/database"
@@ -224,7 +221,6 @@ func (cm *ContainerManager) ContainerStatus(containerId string) string {
 	}
 	return state.Status
 }
-
 func (cm *ContainerManager) RunAsDaemon(ctx context.Context) error {
 	cm.Logger.Info("Starting ContainerManager daemon")
 
@@ -233,23 +229,23 @@ func (cm *ContainerManager) RunAsDaemon(ctx context.Context) error {
 		cm.HealthChecker = health.NewHealthChecker(cm.DockerClient, cm.Db, 1*time.Minute, cm.Logger)
 	}
 
-	// Create a channel to receive OS signals
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-
 	// Start the health checker in a separate goroutine
-	go cm.HealthChecker.Start(ctx)
+	healthCheckerCtx, healthCheckerCancel := context.WithCancel(ctx)
+	defer healthCheckerCancel()
+	go cm.HealthChecker.Start(healthCheckerCtx)
 
 	// Main daemon loop
+	ticker := time.NewTicker(1 * time.Minute)
+	defer ticker.Stop()
+
 	for {
 		select {
 		case <-ctx.Done():
 			cm.Logger.Info("Shutting down ContainerManager daemon")
 			return nil
-		case sig := <-sigChan:
-			cm.Logger.Info("Received signal: %v", sig)
-			return nil
-
+		case <-ticker.C:
+			// Perform periodic tasks here, if any
+			cm.Logger.Debug("ContainerManager daemon is running")
 		}
 	}
 }

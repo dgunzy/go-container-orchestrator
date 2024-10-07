@@ -3,65 +3,90 @@ package cli
 import (
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/dgunzy/go-container-orchestrator/internal/container"
+	"github.com/dgunzy/go-container-orchestrator/internal/database"
+	"github.com/dgunzy/go-container-orchestrator/internal/health"
 	"github.com/dgunzy/go-container-orchestrator/internal/logging"
-	"github.com/dgunzy/go-container-orchestrator/pkg/docker"
+	internal_client "github.com/dgunzy/go-container-orchestrator/pkg/docker"
 	"github.com/joho/godotenv"
 	"github.com/spf13/cobra"
 )
 
-var rootCmd = NewCommand(
-	"container-orchestrator",
-	"A container orchestrator CLI",
-	func(cmd *Command, args []string) {
-		// Root command action
-	},
-)
-
-func Execute() {
-	if err := rootCmd.Execute(); err != nil {
-		fmt.Println(err)
-		os.Exit(1)
-	}
-}
-
-func init() {
-	cobra.OnInitialize(initConfig)
-}
-
-func initConfig() {
-	// Initialize logging
-	if err := logging.Setup("../../container_manager_logs"); err != nil {
-		fmt.Printf("Error setting up logging: %v\n", err)
-		os.Exit(1)
+func NewCLI() (*CLI, error) {
+	cm, err := initializeContainerManager()
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize container manager: %w", err)
 	}
 
+	cli := &CLI{
+		rootCmd: &cobra.Command{
+			Use:   "container-orchestrator",
+			Short: "A container orchestrator CLI",
+		},
+		cm: cm,
+	}
+
+	cli.initCommands()
+	return cli, nil
+}
+
+func initializeContainerManager() (*container.ContainerManager, error) {
+	if err := godotenv.Load(); err != nil {
+		fmt.Println("Warning: Error loading .env file")
+	}
+	// Get the log path from the environment variable, or use the default value
+	logPath := os.Getenv("LOG_PATH")
+	if logPath == "" {
+		logPath = "./container_manager_logs"
+	}
+
+	err := logging.Setup(logPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to set up logging: %w", err)
+	}
 	logger := logging.GetLogger()
 
-	// Initialize Docker client
-	dockerClient, err := docker.NewClient()
+	dockerClient, err := internal_client.NewClient()
 	if err != nil {
-		logger.Error("Error creating Docker client: %v", err)
-		os.Exit(1)
+		return nil, fmt.Errorf("error creating Docker client: %w", err)
 	}
-
-	if godotenv.Load() != nil {
-		logger.Warn("Error loading .env file")
-	}
-
+	// change this for testing!
 	DBPath := os.Getenv("DB_PATH")
 	if DBPath == "" {
 		logger.Warn("No DB_PATH environment variable set, using in-memory database")
-		DBPath = ":memory:"
+		DBPath = "./container_manager.db"
 	}
-	// Initialize ContainerManager
-	cm, err := container.NewContainerManager(dockerClient, DBPath, logger)
+
+	db, err := database.NewDatabase(DBPath)
 	if err != nil {
-		logger.Error("Error creating ContainerManager: %v", err)
+		return nil, fmt.Errorf("error creating database: %w", err)
+	}
+
+	healthChecker := health.NewHealthChecker(dockerClient, db, 5*time.Minute, logger)
+
+	cm, err := container.NewContainerManager(dockerClient, DBPath, logger, healthChecker)
+	if err != nil {
+		return nil, fmt.Errorf("error creating ContainerManager: %w", err)
+	}
+
+	if err := cm.Db.InitSchema(); err != nil {
+		return nil, fmt.Errorf("error initializing database schema: %w", err)
+	}
+
+	return cm, nil
+}
+
+func Execute() {
+	cli, err := NewCLI()
+	if err != nil {
+		fmt.Printf("Error initializing CLI: %v\n", err)
 		os.Exit(1)
 	}
 
-	// Set the ContainerManager for all commands
-	rootCmd.CM = cm
+	if err := cli.Run(); err != nil {
+		fmt.Printf("Error executing CLI: %v\n", err)
+		os.Exit(1)
+	}
 }

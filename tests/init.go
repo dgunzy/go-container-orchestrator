@@ -42,16 +42,8 @@ func InitTestConfig() container.ContainerManager {
 		fmt.Printf("Error creating database: %v\n", err)
 		os.Exit(1)
 	}
-	err = db.InitSchema()
-	if err != nil {
-		fmt.Printf("Error initializing database schema: %v\n", err)
-		os.Exit(1)
-	}
-
-	// Create HealthChecker
 	healthChecker := health.NewHealthChecker(dockerClient, db, 5*time.Minute, logger)
 
-	// Create ContainerManager
 	cm, err := container.NewContainerManager(dockerClient, ":memory:", logger, healthChecker)
 	if err != nil {
 		fmt.Printf("Error creating ContainerManager: %v\n", err)

@@ -9,6 +9,7 @@ import (
 	"github.com/docker/docker/api/types"
 )
 
+// TODO add a count to stop trying to restart a container
 type DockerClient interface {
 	HealthCheck(ctx context.Context, containerID string) (types.ContainerState, error)
 	StartContainer(ctx context.Context, containerID string) error

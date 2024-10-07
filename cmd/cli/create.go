@@ -4,41 +4,40 @@ import (
 	"context"
 
 	"github.com/dgunzy/go-container-orchestrator/internal/container"
+	"github.com/spf13/cobra"
 )
 
-var createCmd = NewCommand(
-	"create",
-	"Create a new container",
-	runCreate,
-)
+func (cli *CLI) newCreateCommand() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "create",
+		Short: "Create a new container",
+		Run:   cli.runCreate,
+	}
 
-func init() {
-	rootCmd.AddCommand(createCmd.Command)
-	createCmd.Flags().String("domain", "", "Domain name for the container")
-	createCmd.Flags().String("image", "", "Image name for the container")
-	createCmd.Flags().String("name", "", "Name for the container")
-	createCmd.Flags().String("port", "", "Container port")
-	createCmd.Flags().String("username", "", "Registry username")
-	createCmd.Flags().String("password", "", "Registry password")
+	cmd.Flags().String("domain", "", "Domain name for the container")
+	cmd.Flags().String("image", "", "Image name for the container")
+	cmd.Flags().String("name", "", "Name for the container")
+	cmd.Flags().String("port", "", "Container port")
+	cmd.Flags().String("username", "", "Registry username")
+	cmd.Flags().String("password", "", "Registry password")
 
-	// Add more flags as needed
+	return cmd
 }
 
-func runCreate(cmd *Command, args []string) {
+func (cli *CLI) runCreate(cmd *cobra.Command, args []string) {
 	config := &container.ContainerConfig{
-		DomainName:       cmd.Flags().Lookup("domain").Value.String(),
-		ImageName:        cmd.Flags().Lookup("image").Value.String(),
-		ContainerName:    cmd.Flags().Lookup("name").Value.String(),
-		ContainerPort:    cmd.Flags().Lookup("port").Value.String(),
-		RegistryUsername: cmd.Flags().Lookup("username").Value.String(),
-		RegistryPassword: cmd.Flags().Lookup("password").Value.String(),
+		DomainName:       cmd.Flag("domain").Value.String(),
+		ImageName:        cmd.Flag("image").Value.String(),
+		ContainerName:    cmd.Flag("name").Value.String(),
+		ContainerPort:    cmd.Flag("port").Value.String(),
+		RegistryUsername: cmd.Flag("username").Value.String(),
+		RegistryPassword: cmd.Flag("password").Value.String(),
 	}
 
-	err := cmd.CM.CreateNewContainer(context.Background(), config)
+	err := cli.cm.CreateNewContainer(context.Background(), config)
 	if err != nil {
-		cmd.CM.Logger.Error("Error creating container: %v", err)
+		cli.cm.Logger.Error("Error creating container: %v", err)
 		return
 	}
-
-	cmd.CM.Logger.Info("Container created successfully")
+	cli.cm.Logger.Info("Container created successfully")
 }

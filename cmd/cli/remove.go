@@ -3,22 +3,25 @@ package cli
 import (
 	"context"
 	"fmt"
+
+	"github.com/spf13/cobra"
 )
 
-var removeCmd = NewCommand(
-	"remove <container-name>",
-	"Remove a container or container and its image",
-	runRemove,
-)
+func (cli *CLI) newRemoveCommand() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "remove <container-name>",
+		Short: "Remove a container or container and its image",
+		Run:   cli.runRemove,
+	}
 
-func init() {
-	rootCmd.AddCommand(removeCmd.Command)
-	removeCmd.Flags().Bool("full", false, "Remove both the container and its image")
+	cmd.Flags().Bool("full", false, "Remove both the container and its image")
+
+	return cmd
 }
 
-func runRemove(cmd *Command, args []string) {
+func (cli *CLI) runRemove(cmd *cobra.Command, args []string) {
 	if len(args) < 1 {
-		cmd.CM.Logger.Error("Container name is required")
+		cli.cm.Logger.Error("Container name is required")
 		fmt.Println("Usage: remove <container-name> [--full]")
 		return
 	}
@@ -26,41 +29,41 @@ func runRemove(cmd *Command, args []string) {
 	containerName := args[0]
 	fullRemove, _ := cmd.Flags().GetBool("full")
 
-	containers, err := cmd.CM.Db.GetContainersByPartialName(containerName)
+	containers, err := cli.cm.Db.GetContainersByPartialName(containerName)
 	if err != nil {
-		cmd.CM.Logger.Error("Error fetching container: %v", err)
+		cli.cm.Logger.Error("Error fetching container: %v", err)
 		return
 	}
 
 	if len(containers) == 0 {
-		cmd.CM.Logger.Error("No containers found matching '%s'", containerName)
+		cli.cm.Logger.Error("No containers found matching '%s'", containerName)
 		return
 	}
 
 	if len(containers) > 1 {
 		fmt.Printf("Multiple containers found matching '%s':\n", containerName)
 		for _, c := range containers {
-			cmd.CM.Logger.Info("- %s (ID: %s)\n", c.ContainerName, c.ContainerID)
+			cli.cm.Logger.Info("- %s (ID: %s)\n", c.ContainerName, c.ContainerID)
 		}
-		cmd.CM.Logger.Info("Please specify the exact container name.")
+		cli.cm.Logger.Info("Please specify the exact container name.")
 		return
 	}
 
 	container := containers[0]
 
 	if fullRemove {
-		err = cmd.CM.RemoveContainerAndImage(context.Background(), container.ContainerID)
+		err = cli.cm.RemoveContainerAndImage(context.Background(), container.ContainerID)
 		if err != nil {
-			cmd.CM.Logger.Error("Error removing container and image: %v", err)
+			cli.cm.Logger.Error("Error removing container and image: %v", err)
 			return
 		}
-		cmd.CM.Logger.Info("Successfully removed container '%s' and its image.\n", container.ContainerName)
+		cli.cm.Logger.Info("Successfully removed container '%s' and its image.\n", container.ContainerName)
 	} else {
-		err = cmd.CM.RemoveContainer(context.Background(), container.ContainerID)
+		err = cli.cm.RemoveContainer(context.Background(), container.ContainerID)
 		if err != nil {
-			cmd.CM.Logger.Error("Error removing container: %v", err)
+			cli.cm.Logger.Error("Error removing container: %v", err)
 			return
 		}
-		cmd.CM.Logger.Info("Successfully removed container '%s'.\n", container.ContainerName)
+		cli.cm.Logger.Info("Successfully removed container '%s'.\n", container.ContainerName)
 	}
 }
