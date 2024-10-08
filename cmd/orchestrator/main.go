@@ -2,68 +2,106 @@ package main
 
 import (
 	"context"
-	"fmt"
-	"os"
-	"os/signal"
-	"sync"
-	"syscall"
+	"log"
+	"net"
 
-	"github.com/dgunzy/go-container-orchestrator/cmd/cli"
 	"github.com/dgunzy/go-container-orchestrator/internal/container"
-	"github.com/dgunzy/go-container-orchestrator/internal/logging"
+	pb "github.com/dgunzy/go-container-orchestrator/pkg/proto"
+	"google.golang.org/grpc"
 )
 
-func main() {
-	if err := logging.Setup("./container_manager_logs"); err != nil {
-		fmt.Printf("Failed to set up logging: %v\n", err)
-		os.Exit(1)
-	}
-	logger := logging.GetLogger()
+type server struct {
+	pb.UnimplementedContainerServiceServer
+	cm *container.ContainerManager
+}
 
+func (s *server) CreateContainer(ctx context.Context, req *pb.CreateContainerRequest) (*pb.CreateContainerResponse, error) {
+	config := &container.ContainerConfig{
+		DomainName:       req.Config.DomainName,
+		ImageName:        req.Config.ImageName,
+		ContainerName:    req.Config.ContainerName,
+		ContainerPort:    req.Config.ContainerPort,
+		RegistryUsername: req.Config.RegistryUsername,
+		RegistryPassword: req.Config.RegistryPassword,
+	}
+
+	err := s.cm.CreateNewContainer(ctx, config)
+	if err != nil {
+		s.cm.Logger.Error("Error creating container: %v", err)
+		return nil, err
+	}
+
+	return &pb.CreateContainerResponse{ContainerId: config.ContainerID}, nil
+}
+
+func (s *server) ListContainers(ctx context.Context, req *pb.ListContainersRequest) (*pb.ListContainersResponse, error) {
+	containers, err := s.cm.ListContainers()
+	if err != nil {
+		s.cm.Logger.Error("Error creating container: %v", err)
+		return nil, err
+	}
+
+	var pbContainers []*pb.ContainerConfig
+	for _, c := range containers {
+		pbContainers = append(pbContainers, &pb.ContainerConfig{
+			DomainName:    c.DomainName,
+			ImageName:     c.ImageName,
+			ContainerName: c.ContainerName,
+			ContainerId:   c.ContainerID,
+			ContainerPort: c.ContainerPort,
+			HostPort:      c.HostPort,
+			Status:        c.Status,
+		})
+	}
+
+	return &pb.ListContainersResponse{Containers: pbContainers}, nil
+}
+
+func (s *server) UpdateContainer(ctx context.Context, req *pb.UpdateContainerRequest) (*pb.UpdateContainerResponse, error) {
+	config := &container.ContainerConfig{
+		DomainName:       req.Config.DomainName,
+		ImageName:        req.Config.ImageName,
+		ContainerName:    req.Config.ContainerName,
+		ContainerPort:    req.Config.ContainerPort,
+		RegistryUsername: req.Config.RegistryUsername,
+		RegistryPassword: req.Config.RegistryPassword,
+	}
+
+	err := s.cm.UpdateExistingContainer(ctx, config)
+	if err != nil {
+		s.cm.Logger.Error("Error creating container: %v", err)
+		return nil, err
+	}
+
+	return &pb.UpdateContainerResponse{Success: true}, nil
+}
+
+func (s *server) RemoveContainer(ctx context.Context, req *pb.RemoveContainerRequest) (*pb.RemoveContainerResponse, error) {
+	err := s.cm.RemoveContainer(ctx, req.ContainerName)
+	if err != nil {
+		s.cm.Logger.Error("Error creating container: %v", err)
+		return nil, err
+	}
+
+	return &pb.RemoveContainerResponse{Success: true}, nil
+}
+
+func main() {
 	cm, err := container.NewContainerManager()
 	if err != nil {
-		logger.Error("Failed to initialize ContainerManager: %v", err)
-		os.Exit(1)
+		log.Fatalf("Failed to create ContainerManager: %v", err)
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	lis, err := net.Listen("tcp", ":50051")
+	if err != nil {
+		log.Fatalf("Failed to listen: %v", err)
+	}
 
-	// Set up signal handling
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+	s := grpc.NewServer()
+	pb.RegisterContainerServiceServer(s, &server{cm: cm})
 
-	var wg sync.WaitGroup
-
-	// Start ContainerManager
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		if err := cm.RunAsDaemon(ctx); err != nil {
-			logger.Error("Container manager failed: %v", err)
-		}
-	}()
-
-	// Start CLI
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		c, err := cli.NewCLI(cm)
-		if err != nil {
-			logger.Error("Failed to initialize CLI: %v", err)
-			return
-		}
-		if err := c.RunInteractive(ctx); err != nil {
-			logger.Error("CLI failed: %v", err)
-		}
-	}()
-
-	// Wait for termination signal
-	<-sigChan
-	logger.Info("Received termination signal. Shutting down...")
-	cancel()
-
-	// Wait for goroutines to finish
-	wg.Wait()
-	logger.Info("Shutdown complete")
+	log.Printf("Server listening at %v", lis.Addr())
+	if err := s.Serve(lis); err != nil {
+		log.Fatalf("Failed to serve: %v", err)
+	}
 }
